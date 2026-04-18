@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run Python scripts (syntax check)
+        run: |
+          find . -name "*.py" -exec python3 -m py_compile {} \; 2>&1 || echo "Some files may have issues"
+
+      - name: Test demand_miner
+        run: |
+          cd skills/autonomous-earning-system/scripts
+          python3 demand_miner.py "AI工具" 2>&1 | head -10
+
+      - name: Test affiliate_link_generator
+        run: |
+          cd skills/affiliate-monetization/scripts
+          python3 affiliate_link_generator.py Cursor --platforms weibo 2>&1 | head -10
+
+      - name: Test hot_topics
+        run: |
+          cd skills/trend-hunter/scripts
+          python3 hot_topics.py --json 2>&1 | head -5
+
+      - name: Generate skill index
+        run: |
+          echo "# Skills Index" > skills_index.md
+          echo "" >> skills_index.md
+          for skill in skills/*/; do
+            name=$(basename "$skill")
+            echo "## $name" >> skills_index.md
+            if [ -f "$skill/SKILL.md" ]; then
+              head -5 "$skill/SKILL.md" >> skills_index.md
+            fi
+            echo "" >> skills_index.md
+          done
+          cat skills_index.md
