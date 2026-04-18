@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run all scripts (validation)
+        run: |
+          echo "=== Testing demand_miner ==="
+          python3 skills/autonomous-earning-system/scripts/demand_miner.py "AI工具导航" 2>&1 | tail -5
+          
+          echo "=== Testing competitor_radar ==="
+          python3 skills/autonomous-earning-system/scripts/competitor_radar.py 2>&1 | tail -5
+          
+          echo "=== Testing mvp_generator ==="
+          python3 skills/autonomous-earning-system/scripts/mvp_generator.py 2>&1 | tail -5
+          
+          echo "=== Testing hot_topics ==="
+          python3 skills/trend-hunter/scripts/hot_topics.py --json 2>&1 | head -3
+          
+          echo "=== Testing affiliate_link_generator ==="
+          python3 skills/affiliate-monetization/scripts/affiliate_link_generator.py Cursor 2>&1 | tail -5
+
+      - name: Generate changelog
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "# 🔖 Release $TAG" > changelog.md
+          echo "" >> changelog.md
+          echo "Published on $(date '+%Y-%m-%d')" >> changelog.md
+          echo "" >> changelog.md
+          echo "## 📦 Included Skills" >> changelog.md
+          for skill in skills/*/; do
+            name=$(basename "$skill")
+            echo "- **$name**" >> changelog.md
+          done
+          echo "" >> changelog.md
+          echo "## 📝 Changes" >> changelog.md
+          git log --oneline -10 > gitlog.txt
+          while IFS= read -r line; do
+            echo "- $line" >> changelog.md
+          done < gitlog.txt
+          cat changelog.md
+
+      - name: Get previous tag
+        id: previoustag
+        uses: EndBug/latest-tag@1
+        with:
+          repo: self
+          fallback: v0.0.0
+        continue-on-error: true
+
+      - name: Generate diff
+        if: steps.previoustag.outputs.tag != ''
+        run: |
+          echo "Diff from ${{ steps.previoustag.outputs.tag }}:"
+          git diff ${{ steps.previoustag.outputs.tag }}..HEAD --stat | head -20
+
+      - name: Count lines of code
+        run: |
+          echo "## 📊 Code Stats" >> changelog.md
+          echo "" >> changelog.md
+          TOTAL=$(find . -name "*.py" -o -name "*.md" | grep -v ".git" | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+          echo "| Metric | Value |" >> changelog.md
+          echo "|--------|-------|" >> changelog.md
+          echo "| Total Lines | $TOTAL |" >> changelog.md
+          SKILLS=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l)
+          SCRIPTS=$(find skills -name "*.py" | wc -l)
+          echo "| Skills | $SKILLS |" >> changelog.md
+          echo "| Scripts | $SCRIPTS |" >> changelog.md
+          echo "" >> changelog.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: changelog.md
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: changelog.md
+          asset_name: changelog.md
+          asset_content_type: text/markdown
